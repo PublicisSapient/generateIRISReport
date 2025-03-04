@@ -1,0 +1,16 @@
+{
+  "name": "generateirisreport",
+  "version": "1.0.0",
+  "description": "A program that will take the output of EA's IRIS Photosensitivity program and generate a human readable PDF report.",
+  "main": "generateIRISReport.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "csv-parser": "^3.2.0",
+    "fluent-ffmpeg": "^2.1.3"
+  }
+}
