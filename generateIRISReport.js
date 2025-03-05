@@ -2,6 +2,7 @@ const fs = require('fs');
 const csv = require('csv-parser');
 const ffmpeg = require('fluent-ffmpeg');
 const path = require('path');
+const JSPJs = require('jsp-js').Renderer;
 
 
 const report = new function () {
@@ -10,6 +11,24 @@ const report = new function () {
     const videoFileName = splitPath[splitPath.length - 2];
     const reportDir = './report';
     const videoDir = '../../tmp/video-tests';
+    const templateDir = './templates/report';
+
+    const jsp = new JSPJs({
+        root: [
+            path.join(__dirname, 'templates/report')
+        ],
+        tags: {
+            foo: {
+                bar() {
+                    return '<h2>Baz</h2>';
+                }
+            }
+        },
+        globals: {
+            videoFileName: videoFileName,
+            dateGenerated: new Date(Date.now())
+        }
+    });
 
     const luminanceViolations = [],
     redViolations = [];
@@ -35,9 +54,30 @@ const report = new function () {
                 generateReportImages(luminanceViolations, redViolations);
 
                 violations = {luminanceViolations, redViolations};
+
+                // Now render the HTML report.
+                renderHTML();
             })
             .catch(console.error);
 
+    }
+
+    const renderHTML = () => {
+        const html = jsp.render(`${templateDir}/index.jsp`, {
+            luminanceViolations,
+            redViolations
+        });
+
+        console.log(`html: ${html}`);
+
+        fs.writeFile(`${reportDir}/index.html`, html, 'utf8', (err) => {
+            if (err) {
+                console.error(`Report can not be save to disk  Please ensure you are able to write to directory ${reportDir}`, err);
+            } else {
+                console.log('Report written successfully');
+            }
+        });
+        
     }
 
     const createDirIfNotThere =  (dirPath) => {
@@ -74,18 +114,44 @@ const report = new function () {
     }
 
     const generateReportImages = (luminanceViolations, redViolations) => {
-        const luminanceDir = `${reportDir}/luminanceFrames/`,
-            redDir = `${reportDir}/redFrames/`;
+        const luminanceDir = `luminanceFrames`,
+            redDir = `redFrames`;
 
-        createDirIfNotThere(luminanceDir);
-        createDirIfNotThere(redDir);
+        createDirIfNotThere(`${reportDir}/${luminanceDir}`);
+        createDirIfNotThere(`${reportDir}/${redDir}`);
 
         for (let i = 0; i<luminanceViolations.length; i++) {
-            captureFrame(videoFileName, luminanceViolations[i].start, luminanceDir);
+            const time = luminanceViolations[i].start;
+            const outputFile = `${luminanceDir}/file-frame_at_${time.replace(/:/g, '-')}.png`;
+
+            luminanceViolations[i].imgURL = outputFile;
+
+            (async () => {
+                try {
+                    await captureFrame(videoFileName, time, luminanceDir, outputFile);
+                    
+                } catch (ex) {
+                    console.error('Error capturing frame:', ex);
+                }
+            })();
+            
         }
 
         for (let i = 0; i<redViolations.length; i++) {
-            captureFrame(videoFileName, redViolations[i].start, redDir);
+            const time = redViolations[i].start;
+            const outputFile = `${redDir}/file-frame_at_${time.replace(/:/g, '-')}.png`;
+
+            redViolations[i].imgURL = outputFile;
+            
+            (async () => {
+                try {
+                    await captureFrame(videoFileName, redViolations[i].start, redDir, outputFile);
+                    
+                } catch (ex) {
+                    console.error('Error capturing frame:', ex);
+                }
+            })();
+            
         }
     }
 
@@ -96,21 +162,22 @@ const report = new function () {
      * @param {string} [outputDir='./'] - Optional output directory for the image.
      * @returns {Promise<string>} - The path to the captured image.
      */
-    const captureFrame = (file, time, outputDir = './report') => {
+    const captureFrame = (file, time, outputDir, outputFile) => {
         const videoPath = `${videoDir}/${videoFileName}`;
         return new Promise((resolve, reject) => {
-            const outputFile = `${outputDir}/file-frame_at_${time.replace(/:/g, '-')}.png`;
+            //const outputFile = `${outputDir}/file-frame_at_${time.replace(/:/g, '-')}.png`;
             console.log(`Creating: ${outputFile}`);
+            const fullFilePath=`${reportDir}/${outputDir}/${outputFile}`;
             ffmpeg(videoPath)
                 .screenshots({
                     timestamps: [time],
-                    filename: path.basename(outputFile),
-                    folder: outputDir,
+                    filename: path.basename(fullFilePath),
+                    folder: `${reportDir}/${outputDir}`,
                     size: '1920x1080'
                 })
                 .on('end', () => {
-                    console.log('Image captured:', outputFile);
-                    resolve(outputFile);
+                    console.log('Image captured:', fullFilePath);
+                    resolve(fullFilePath);
                 })
                 .on('error', (err) => {
                     console.error('Error capturing image:', err);
@@ -122,7 +189,8 @@ const report = new function () {
     const logLuminanceViolation = function (TimeStamp) {
         luminanceViolations.push({
             'start': luminanceStart,
-            'end': TimeStamp
+            'end': TimeStamp,
+            'index': luminanceViolations.length + 1
         });
 
         // clear the information 
@@ -133,7 +201,8 @@ const report = new function () {
     const logRedViolation = function (TimeStamp) {
         redViolations.push({
             'start': redStart,
-            'end': TimeStamp
+            'end': TimeStamp,
+            'index': redViolations.length + 1
         });
 
         // clear the information 
